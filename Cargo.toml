@@ -1,0 +1,6 @@
+[package]
+name = "binary-heap"
+version = "0.1.0"
+authors = ["Benedikt Steinbusch <ben@rockshrub.de>"]
+
+[dependencies]
