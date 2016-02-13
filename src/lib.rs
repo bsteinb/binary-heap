@@ -418,6 +418,111 @@ impl<T: Ord> BinaryHeap<T> {
         item
     }
 
+    /// Tries to pop the greatest item off the queue and passes the result to `f`. If `f` returns a
+    /// value, it is pushed onto the heap.
+    ///
+    /// This is a counterpart to `push_pop()` that allows modifying/replacing the greatest element
+    /// without going through the sequence `pop() -> modify -> push()` which has to re-establish
+    /// the heap invariant twice.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use binary_heap::BinaryHeap;
+    ///
+    /// let mut heap1 = BinaryHeap::new();
+    /// heap1.push(1);
+    /// heap1.push(5);
+    /// let mut heap2 = heap1.clone();
+    ///
+    /// let f1 = |h: Option<u64>| { h.map(|i| i + 1)  };
+    /// let f2 = |h: Option<u64>| { h.map(|i| i + 1)  };
+    ///
+    /// // These should be equivalent, but pop_push() is more efficient.
+    /// f1(heap1.pop()).map(|newitem| heap1.push(newitem));
+    /// heap2.pop_push(f2);
+    ///
+    /// let a = heap1.pop();
+    /// assert_eq!(a, Some(6));
+    /// assert_eq!(a, heap2.pop());
+    ///
+    /// let b = heap1.pop();
+    /// assert_eq!(b, Some(1));
+    /// assert_eq!(b, heap2.pop());
+    ///
+    /// assert_eq!(heap1.pop(), None);
+    /// assert_eq!(heap2.pop(), None);
+    /// ```
+    ///
+    /// ```
+    /// use binary_heap::BinaryHeap;
+    ///
+    /// let mut heap = BinaryHeap::new();
+    /// heap.pop_push(|_| Some(1));
+    /// assert_eq!(heap.peek(), Some(&1));
+    /// heap.pop_push(|_| None);
+    /// assert!(heap.is_empty());
+    /// ```
+    pub fn pop_push<F>(&mut self, f: F)
+        where F: FnOnce(Option<T>) -> Option<T>
+    {
+        if self.data.len() > 1 {
+            unsafe {
+                if let Some(newitem) = f(Some(ptr::read(self.data.as_ptr()))) {
+                    ptr::write(self.data.as_mut_ptr(), newitem);
+                } else {
+                    ptr::write(self.data.as_mut_ptr(), self.data.pop().unwrap());
+                }
+            }
+            self.sift_down(0);
+        } else {
+            if let Some(newitem) = f(self.data.pop()) {
+                self.data.push(newitem);
+            }
+        }
+    }
+
+    /// If the heap is not empty, pops the greatest element and passes it to `f`. If `f` returns a
+    /// value, it is pushed onto the heap.
+    ///
+    /// This is a counterpart to `push_pop()` that allows modifying/replacing the greatest element
+    /// without going through the sequence `pop() -> modify -> push()` which has to re-establish
+    /// the heap invariant twice.
+    ///
+    /// Similar to `pop_push()` but `f` is only called if the heap is not empty.
+    ///
+    /// ```
+    /// use binary_heap::BinaryHeap;
+    ///
+    /// let mut heap1 = BinaryHeap::new();
+    /// heap1.push(1);
+    /// heap1.push(5);
+    /// let mut heap2 = heap1.clone();
+    ///
+    /// let f1 = |h: u64| { Some(h + 1) };
+    /// let f2 = |h: u64| { Some(h + 1) };
+    ///
+    /// // These should be equivalent, but pop_and_then_push() is more efficient.
+    /// heap1.pop().and_then(f1).map(|newitem| heap1.push(newitem));
+    /// heap2.pop_and_then_push(f2);
+    ///
+    /// let a = heap1.pop();
+    /// assert_eq!(a, Some(6));
+    /// assert_eq!(a, heap2.pop());
+    ///
+    /// let b = heap1.pop();
+    /// assert_eq!(b, Some(1));
+    /// assert_eq!(b, heap2.pop());
+    ///
+    /// assert_eq!(heap1.pop(), None);
+    /// assert_eq!(heap2.pop(), None);
+    /// ```
+    pub fn pop_and_then_push<F>(&mut self, f: F)
+        where F: FnOnce(T) -> Option<T>
+    {
+        self.pop_push(|x| x.and_then(f));
+    }
+
     /// Pops the greatest item off the binary heap, then pushes an item onto the queue in
     /// an optimized fashion. The push is done regardless of whether the binary heap
     /// was empty.
