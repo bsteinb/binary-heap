@@ -732,6 +732,11 @@ impl<T: Ord> BinaryHeap<T> {
     pub fn head(&mut self) -> Head<T> {
         Head::new(self)
     }
+
+    /// Wraps the heap in a `HeadRef` value which allows modifying/replacing the greatest element.
+    pub fn head_ref(&mut self) -> HeadRef<T> {
+        HeadRef::new(self)
+    }
 }
 
 /// Hole represents a hole in a slice i.e. an index without valid value
@@ -937,6 +942,76 @@ impl<'a, T: Ord> Drop for Head<'a, T> {
                 self.heap.data.push(newitem);
             }
         }
+    }
+}
+
+/// Wraps a heap and allows modifying/replacing the greatest element.
+///
+/// The heap invariant is not enforced while the `HeadRef` value is around. It is only re-established
+/// upon `drop()`.
+///
+/// If a `HeadRef` is leaked (e.g. via `mem::forget()`) the elements might not be in `Heap` order
+/// anymore.
+///
+/// # Examples
+///
+/// ```
+/// use std::mem;
+/// use binary_heap::BinaryHeap;
+///
+/// let mut heap = BinaryHeap::new();
+/// heap.push(5);
+/// heap.push(1);
+///
+/// {
+///     let mut head_ref = heap.head_ref();
+///     head_ref.as_mut().map(|i| *i = 0);
+///     mem::forget(head_ref);
+/// }
+///
+/// assert_eq!(heap.pop(), Some(0));
+/// assert_eq!(heap.pop(), Some(1));
+/// assert!(heap.is_empty());
+/// ```
+pub struct HeadRef<'a, T: 'a + Ord> {
+    heap: &'a mut BinaryHeap<T>,
+}
+
+impl<'a, T: 'a + Ord> HeadRef<'a, T> {
+    fn new(heap: &'a mut BinaryHeap<T>) -> Self {
+        HeadRef { heap: heap }
+    }
+
+    /// Returns a mutable reference to the greatest element of the heap.
+    ///
+    /// When `self` is dropped, the (modified) head is pushed onto the heap anew, moving it to its
+    /// correct position.
+    ///
+    /// # Examples
+    /// ```
+    /// use binary_heap::BinaryHeap;
+    ///
+    /// let mut heap = BinaryHeap::new();
+    /// heap.push(5);
+    /// heap.push(1);
+    ///
+    /// {
+    ///     let mut head_ref = heap.head_ref();
+    ///     head_ref.as_mut().map(|i| *i = 0);
+    /// }
+    ///
+    /// assert_eq!(heap.pop(), Some(1));
+    /// assert_eq!(heap.pop(), Some(0));
+    /// assert!(heap.is_empty());
+    /// ```
+    pub fn as_mut(&mut self) -> Option<&mut T> {
+        self.heap.data.get_mut(0)
+    }
+}
+
+impl<'a, T: Ord> Drop for HeadRef<'a, T> {
+    fn drop(&mut self) {
+        if !self.heap.is_empty() { self.heap.sift_down(0); }
     }
 }
 
