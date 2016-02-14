@@ -269,6 +269,32 @@ impl<T: Ord> BinaryHeap<T> {
         self.data.get(0)
     }
 
+    /// Passes a mutable reference to the greatest item in the heap to `f` if the heap is not
+    /// empty. `f` is allowed to modify the item and the heap invariant is restored once `f`
+    /// returns.
+    ///
+    /// ```
+    /// use binary_heap::BinaryHeap;
+    ///
+    /// let mut heap = BinaryHeap::new();
+    /// assert_eq!(heap.peek_mut(|_| { }), None);
+    ///
+    /// heap.push(1);
+    /// heap.push(5);
+    ///
+    /// heap.peek_mut(|i| *i = 0);
+    /// assert_eq!(heap.pop(), Some(1));
+    /// assert_eq!(heap.pop(), Some(0));
+    /// assert!(heap.is_empty());
+    /// ```
+    pub fn peek_mut<F, U>(&mut self, f: F) -> Option<U>
+        where F: FnOnce(&mut T) -> U
+    {
+        let ret = self.data.get_mut(0).map(f);
+        if !self.is_empty() { self.sift_down(0); }
+        ret
+    }
+
     /// Returns the number of elements the binary heap can hold without reallocating.
     ///
     /// # Examples
