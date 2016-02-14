@@ -701,6 +701,11 @@ impl<T: Ord> BinaryHeap<T> {
     pub fn clear(&mut self) {
         self.drain();
     }
+
+    /// Wraps the heap in a `Head` value which allows modifying/replacing/removing the greatest element.
+    pub fn head(&mut self) -> Head<T> {
+        Head::new(self)
+    }
 }
 
 /// Hole represents a hole in a slice i.e. an index without valid value
@@ -768,6 +773,143 @@ impl<'a, T> Drop for Hole<'a, T> {
         unsafe {
             let pos = self.pos;
             ptr::write(&mut self.data[pos], self.elt.take().unwrap());
+        }
+    }
+}
+
+/// Wraps a heap and allows modifying/replacing/removing the greatest element.
+///
+/// The heap invariant is not enforced while the `Head` value is around. It is only re-established
+/// upon `drop()`.
+///
+/// If a `Head` is leaked (e.g. via `mem::forget()`) the wrapped `Heap` is empty.
+///
+/// # Examples
+///
+/// ```
+/// use std::mem;
+/// use binary_heap::BinaryHeap;
+///
+/// let mut heap = BinaryHeap::new();
+/// heap.push(5);
+///
+/// assert!(!heap.is_empty());
+///
+/// {
+///    let head = heap.head();
+///    mem::forget(head);
+/// }
+///
+/// assert!(heap.is_empty());
+/// ```
+pub struct Head<'a, T: 'a + Ord> {
+    oldlen: usize,
+    head: Option<T>,
+    heap: &'a mut BinaryHeap<T>,
+}
+
+impl<'a, T: 'a + Ord> Head<'a, T> {
+    fn new(heap: &'a mut BinaryHeap<T>) -> Self {
+        let oldlen = heap.data.len();
+        let head = {
+            if heap.data.len() > 1 {
+                unsafe {
+                    heap.data.set_len(0);
+                    Some(ptr::read(heap.data.as_mut_ptr()))
+                }
+            } else {
+                heap.data.pop()
+            }
+        };
+        Head { oldlen: oldlen, head: head, heap: heap }
+    }
+
+    /// Takes the greatest element of the heap.
+    ///
+    /// If no element is `put()` back before `self` is dropped, this is equivalent to a `pop()`.
+    ///
+    /// # Examples
+    /// ```
+    /// use binary_heap::BinaryHeap;
+    ///
+    /// let mut heap = BinaryHeap::new();
+    /// heap.push(5);
+    ///
+    /// {
+    ///     let mut head = heap.head();
+    ///     assert_eq!(head.take(), Some(5));
+    /// }
+    ///
+    /// assert!(heap.is_empty());
+    /// ```
+    pub fn take(&mut self) -> Option<T> {
+        self.head.take()
+    }
+
+    /// Replaces the greatest element of the heap.
+    ///
+    /// When `self` is dropped, the last element `put()` into the `Head` is pushed onto the heap.
+    ///
+    /// # Examples
+    /// ```
+    /// use binary_heap::BinaryHeap;
+    ///
+    /// let mut heap = BinaryHeap::new();
+    ///
+    /// {
+    ///     let mut head = heap.head();
+    ///     head.put(5);
+    /// }
+    ///
+    /// assert_eq!(heap.pop(), Some(5));
+    /// ```
+    pub fn put(&mut self, val: T) {
+        self.head = Some(val);
+    }
+
+    /// Returns a mutable reference to the greatest element of the heap.
+    ///
+    /// When `self` is dropped, the (modified) head is pushed onto the heap anew, moving it to its
+    /// correct position.
+    ///
+    /// # Examples
+    /// ```
+    /// use binary_heap::BinaryHeap;
+    ///
+    /// let mut heap = BinaryHeap::new();
+    /// heap.push(1);
+    /// heap.push(5);
+    ///
+    /// {
+    ///     let mut head = heap.head();
+    ///     head.as_mut().map(|i| *i = 0);
+    /// }
+    ///
+    /// assert_eq!(heap.pop(), Some(1));
+    /// assert_eq!(heap.pop(), Some(0));
+    /// assert!(heap.is_empty());
+    /// ```
+    pub fn as_mut(&mut self) -> Option<&mut T> {
+        self.head.as_mut()
+    }
+}
+
+impl<'a, T: Ord> Drop for Head<'a, T> {
+    fn drop(&mut self) {
+        if self.oldlen > 1 {
+            unsafe {
+                self.heap.data.set_len(self.oldlen);
+                if let Some(newitem) = self.head.take() {
+                    ptr::write(self.heap.data.as_mut_ptr(), newitem);
+                } else {
+                    ptr::write(self.heap.data.as_mut_ptr(), self.heap.data.pop().unwrap());
+                }
+            }
+            self.heap.sift_down(0);
+        } else {
+            if let Some(newitem) = self.head.take() {
+                self.heap.data.push(newitem);
+            }
         }
     }
 }
